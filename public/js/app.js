@@ -194,10 +194,10 @@ async function summarize() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       });
-      // Guard against Vercel timeout pages returning HTML instead of JSON
+      // Safe JSON parse — guard against Vercel returning an HTML error page
       const contentType = res.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) {
-        throw new Error('Server timed out fetching the transcript. Try again in a moment.');
+        throw new Error('Could not reach the server. Check your connection and try again.');
       }
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Could not fetch transcript');
