@@ -1,80 +1,124 @@
-function reteriveTranscript() {
-  const videoId = new URLSearchParams(window.location.search).get('v');
-  const YT_INITIAL_PLAYER_RESPONSE_RE =
-    /ytInitialPlayerResponse\s*=\s*({.+?})\s*;\s*(?:var\s+(?:meta|head)|<\/script|\n)/;
-  let player = window.ytInitialPlayerResponse;
-  if (!player || videoID !== player.videoDetails.videoId) {
-    fetch('https://www.youtube.com/watch?v=' + videoId)
-      .then(function (response) {
-        return response.text();
-      })
-      .then(function (body) {
-        const playerResponse = body.match(YT_INITIAL_PLAYER_RESPONSE_RE);
-        if (!playerResponse) {
-          console.warn('Unable to parse playerResponse');
-          return;
-        }
-        player = JSON.parse(playerResponse[1]);
-        const metadata = {
-          title: player.videoDetails.title,
-          duration: player.videoDetails.lengthSeconds,
-          author: player.videoDetails.author,
-          views: player.videoDetails.viewCount,
-        };
-        // Get the tracks and sort them by priority
-        const tracks = player.captions.playerCaptionsTracklistRenderer.captionTracks;
-        tracks.sort(compareTracks);
+// Vercel config — extend timeout to 30s for YouTube page fetching
+export const config = {
+  maxDuration: 30,
+};
 
-        // Get the transcript
-        fetch(tracks[0].baseUrl + '&fmt=json3')
-          .then(function (response) {
-            return response.json();
-          })
-          .then(function (transcript) {
-            const result = { transcript: transcript, metadata: metadata };
+export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-            const parsedTranscript = transcript.events
-              // Remove invalid segments
-              .filter(function (x) {
-                return x.segs;
-              })
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'Missing URL.' });
 
-              // Concatenate into single long string
-              .map(function (x) {
-                return x.segs
-                  .map(function (y) {
-                    return y.utf8;
-                  })
-                  .join(' ');
-              })
-              .join(' ')
+  const videoId = extractVideoId(url);
+  if (!videoId) {
+    return res.status(400).json({
+      error: 'Invalid YouTube URL. Paste a full youtube.com/watch?v= or youtu.be/ link.',
+    });
+  }
 
-              // Remove invalid characters
-              .replace(/[\u200B-\u200D\uFEFF]/g, '')
+  try {
+    // Try fetching captions via the timedtext API first — faster and more reliable
+    // than scraping the full page HTML
+    const langs = ['en', 'en-US', 'en-GB', 'a.en'];
+    let transcript = null;
 
-              // Replace any whitespace with a single space
-              .replace(/\s+/g, ' ');
+    for (const lang of langs) {
+      const timedTextUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${lang}&fmt=json3`;
+      try {
+        const r = await fetch(timedTextUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) continue;
+        const data = await r.json();
+        const events = data?.events?.filter(e => e.segs) ?? [];
+        if (!events.length) continue;
+        transcript = events
+          .flatMap(e => e.segs.map(s => s.utf8 ?? ''))
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (transcript.length > 100) break; // got something useful
+      } catch {
+        continue;
+      }
+    }
 
-            // Use 'result' here as needed
-            console.log('EXTRACTED_TRANSCRIPT', parsedTranscript);
-          });
+    // Fallback — scrape the full YouTube page for caption track URL
+    if (!transcript) {
+      const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept': 'text/html,application/xhtml+xml',
+        },
+        signal: AbortSignal.timeout(12000),
       });
+
+      if (!pageRes.ok) {
+        return res.status(502).json({ error: `YouTube returned status ${pageRes.status}. Try again in a moment.` });
+      }
+
+      const html = await pageRes.text();
+
+      // Extract caption base URL from the page's ytInitialPlayerResponse JSON
+      const captionMatch = html.match(/"captionTracks":\s*\[.*?"baseUrl":\s*"([^"]+)"/s);
+      if (!captionMatch) {
+        return res.status(422).json({
+          error: 'No captions found. The video may have captions disabled, be private, or age-restricted.',
+        });
+      }
+
+      const captionUrl = captionMatch[1]
+        .replace(/\\u0026/g, '&')
+        .replace(/\\"/g, '"');
+
+      const captionRes = await fetch(captionUrl, {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!captionRes.ok) {
+        return res.status(502).json({ error: 'Could not download caption file.' });
+      }
+
+      const xml = await captionRes.text();
+      const lines = [...xml.matchAll(/<text[^>]*>([\s\S]*?)<\/text>/g)]
+        .map(m =>
+          m[1]
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/<[^>]+>/g, '')
+            .trim()
+        )
+        .filter(Boolean);
+
+      if (!lines.length) {
+        return res.status(422).json({ error: 'Captions found but could not be parsed.' });
+      }
+
+      transcript = lines.join(' ');
+    }
+
+    res.json({ transcript });
+
+  } catch (err) {
+    console.error('YouTube handler error:', err.message);
+    // Return a clean JSON error — never let an unhandled throw reach the client
+    res.status(500).json({ error: 'YouTube error: ' + err.message });
   }
 }
 
-function compareTracks(track1, track2) {
-  const langCode1 = track1.languageCode;
-  const langCode2 = track2.languageCode;
-
-  if (langCode1 === 'en' && langCode2 !== 'en') {
-    return -1; // English comes first
-  } else if (langCode1 !== 'en' && langCode2 === 'en') {
-    return 1; // English comes first
-  } else if (track1.kind !== 'asr' && track2.kind === 'asr') {
-    return -1; // Non-ASR comes first
-  } else if (track1.kind === 'asr' && track2.kind !== 'asr') {
-    return 1; // Non-ASR comes first
-  }
-
-  return 0; // Preserve order if both have same priority
+function extractVideoId(url) {
+  try {
+    const u = new URL(url.trim());
+    if (u.hostname.includes('youtu.be'))    return u.pathname.slice(1).split('?')[0];
+    if (u.hostname.includes('youtube.com')) return u.searchParams.get('v');
+  } catch {}
+  // bare video ID passed directly
+  if (/^[a-zA-Z0-9_-]{11}$/.test(url.trim())) return url.trim();
+  return null;
 }
