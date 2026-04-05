@@ -11,10 +11,12 @@ export default async function handler(req, res) {
   const videoId = extractVideoId(url);
   if (!videoId) return res.status(400).json({ error: 'Invalid YouTube URL. Please paste a full youtube.com or youtu.be link.' });
 
-  try {
+  try { 
     // Fetch the YouTube page to get the caption track URL
-    const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
-      headers: {
+  
+import { fetchTranscript } from 'youtube-transcript';
+
+fetchTranscript('videoId or URL').then(console.log); {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
       },
