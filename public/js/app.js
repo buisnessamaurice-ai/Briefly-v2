@@ -194,6 +194,11 @@ async function summarize() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       });
+      // Guard against Vercel timeout pages returning HTML instead of JSON
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error('Server timed out fetching the transcript. Try again in a moment.');
+      }
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Could not fetch transcript');
       inputText = data.transcript;
