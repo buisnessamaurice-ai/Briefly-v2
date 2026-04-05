@@ -1,12 +1,16 @@
 import Groq from 'groq-sdk';
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
+  if (!process.env.GROQ_API_KEY) {
+    return res.status(500).json({ error: 'GROQ_API_KEY is not configured.' });
+  }
+
   const { context, history } = req.body;
   if (!context || !history) return res.status(400).json({ error: 'Missing context or history.' });
+
+  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -28,8 +32,10 @@ export default async function handler(req, res) {
     res.write('data: [DONE]\n\n');
     res.end();
   } catch (err) {
-    console.error(err.message);
-    res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
-    res.end();
+    console.error('Q&A error:', err.message);
+    try {
+      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+      res.end();
+    } catch (_) {}
   }
 }
