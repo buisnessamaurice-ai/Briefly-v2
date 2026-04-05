@@ -210,9 +210,18 @@ async function summarize() {
     setLoading(true);
     prepareResultArea();
     try {
-      const formData = new FormData();
-      formData.append('pdf', selectedPdf);
-      const res  = await fetch('/api/pdf', { method: 'POST', body: formData });
+      // Read file as base64 so we can send it as JSON (works on Vercel)
+      const fileBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload  = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(selectedPdf);
+      });
+      const res  = await fetch('/api/pdf', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ fileBase64 }),
+      });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Could not extract PDF text');
       inputText = data.text;
