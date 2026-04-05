@@ -1,18 +1,22 @@
-# Briefly — NLP Summarizer
+# Briefly — NLP Summarizer v2
 
-A streaming text and video summarizer powered by the Claude AI API.
-The API key lives securely on the backend — never exposed to the browser.
+Summarize anything — text, YouTube videos, PDFs, or video files.  
+Powered by **Groq AI** (free tier, no credit card required).  
+Deployable on **Vercel** (free) in under 2 minutes.
 
 ---
 
 ## Features
 
-- **Text summarization** — paste any article, transcript, report, or meeting notes
-- **Video file upload** — drag-and-drop support (audio transcription ready for extension)
-- **6 summary styles** — concise recap, bullet points, detailed, ELI5, executive briefing, key takeaways
-- **4 length options** — short to comprehensive
-- **Live streaming** — output streams token-by-token as the model responds
-- **Dark mode** — automatic via `prefers-color-scheme`
+- **📝 Text** — paste any article, transcript, report, or notes
+- **▶ YouTube** — paste a URL, transcript is fetched and summarized automatically
+- **📄 PDF** — upload a PDF, text is extracted on the backend
+- **🎬 Video** — upload a video file
+- **🌐 8 languages** — English, French, Spanish, German, Italian, Portuguese, Japanese, Chinese
+- **💬 Q&A mode** — ask follow-up questions after any summary
+- **↓ Export** — download as `.txt` or `.md`
+- **⏱ History** — last 50 summaries saved privately in your browser
+- **🌙 Dark mode** — automatic
 
 ---
 
@@ -20,102 +24,102 @@ The API key lives securely on the backend — never exposed to the browser.
 
 ```
 briefly/
-├── index.html          # App markup
-├── css/
-│   └── styles.css      # All styles (light + dark mode)
-├── js/
-│   └── app.js          # Frontend logic — calls /api/summarize
-├── server.js           # Express backend — holds the API key, proxies to Anthropic
+├── api/
+│   ├── summarize.js      # Groq streaming — summarizes text
+│   ├── qa.js             # Groq streaming — Q&A with context
+│   ├── youtube.js        # Fetches YouTube transcript
+│   └── pdf.js            # Extracts text from uploaded PDF
+├── public/
+│   ├── index.html        # App markup
+│   ├── css/styles.css    # All styles (light + dark mode)
+│   └── js/app.js         # Frontend logic
+├── vercel.json           # Routing config for Vercel
 ├── package.json
-├── .env.example        # Copy to .env and add your key
-├── .gitignore          # Ignores node_modules/ and .env
+├── .env.example          # Copy to .env and add your key
+├── .gitignore
 └── README.md
 ```
 
 ---
 
-## Quick Start (3 steps)
+## Step 1 — Get a free Groq API key
 
-### 1. Clone & install
+1. Go to [console.groq.com](https://console.groq.com)
+2. Sign up — no credit card needed
+3. Click **API Keys** → **Create API Key**
+4. Copy the key (starts with `gsk_...`)
+
+---
+
+## Step 2 — Run locally
 
 ```bash
+# 1. Clone
 git clone https://github.com/YOUR_USERNAME/briefly.git
 cd briefly
+
+# 2. Install dependencies
 npm install
-```
 
-### 2. Add your API key
-
-```bash
+# 3. Create your .env file
 cp .env.example .env
+# Open .env and paste your key: GROQ_API_KEY=gsk_...
+
+# 4. Start local dev server
+npm run dev
 ```
 
-Open `.env` and replace the placeholder:
+Open [http://localhost:3000](http://localhost:3000).
 
-```
-ANTHROPIC_API_KEY=sk-ant-...your-real-key-here...
-```
+> `npm run dev` uses the Vercel CLI to simulate the serverless environment locally —
+> so what works locally will work on Vercel exactly the same way.
 
-Get a key at [console.anthropic.com](https://console.anthropic.com).
+---
 
-### 3. Start the server
+## Step 3 — Deploy to Vercel (free, live URL)
+
+### Option A — via Vercel website (easiest)
+
+1. Push your repo to GitHub (`.env` is git-ignored — never committed)
+2. Go to [vercel.com](https://vercel.com) → **Add New Project** → import your GitHub repo
+3. In the **Environment Variables** section add:
+   - Name: `GROQ_API_KEY`
+   - Value: your key from [console.groq.com](https://console.groq.com)
+4. Click **Deploy** — done. You get a live `https://your-app.vercel.app` URL.
+
+### Option B — via terminal
 
 ```bash
-npm start
+npm install -g vercel   # install Vercel CLI once
+vercel login            # sign in
+vercel                  # deploy — it will ask for your env variable
 ```
 
-Open [http://localhost:3000](http://localhost:3000) — that's it.
-
-> **For development** use `npm run dev` to auto-restart on file changes (requires Node 18+).
+Every `git push` after that auto-redeploys.
 
 ---
 
-## How It Works
+## Troubleshooting
 
-```
-Browser                    Express server (server.js)        Anthropic API
-  │                                │                               │
-  │── POST /api/summarize ────────>│                               │
-  │   { prompt: "..." }            │── stream messages ──────────>│
-  │                                │<── SSE text deltas ──────────│
-  │<── SSE text deltas ────────────│                               │
-  │  (renders live in UI)          │                               │
-```
-
-1. The frontend sends the prompt to `/api/summarize` on the local Express server
-2. The server calls the Anthropic API using the key stored in `.env`
-3. Streamed tokens are forwarded to the browser as Server-Sent Events (SSE)
-4. The frontend appends each delta to the result in real time
-
----
-
-## Deploying to Production
-
-Any Node-hosting platform works. Here are the two easiest options:
-
-### Railway (recommended — free tier available)
-
-1. Push your repo to GitHub
-2. Go to [railway.app](https://railway.app) → New Project → Deploy from GitHub
-3. Add `ANTHROPIC_API_KEY` in **Variables**
-4. Railway auto-detects `npm start` — done
-
-### Render
-
-1. New Web Service → connect your GitHub repo
-2. Build command: `npm install`
-3. Start command: `npm start`
-4. Add `ANTHROPIC_API_KEY` in **Environment**
+| Problem | Fix |
+|---------|-----|
+| `GROQ_API_KEY` errors | Make sure the key is in `.env` locally, or in Vercel's Environment Variables for production |
+| `Cannot find module` | Run `npm install` |
+| YouTube: no transcript | Video has captions disabled, is private, or is age-restricted |
+| PDF: no text extracted | PDF is image-based/scanned — text extraction won't work on those |
+| Vercel functions timing out | Groq is very fast, but very large PDFs can be slow — try a smaller file |
 
 ---
 
 ## Tech Stack
 
 | Layer    | Technology |
-|----------|-----------|
-| Frontend | Vanilla HTML, CSS, JavaScript |
-| Backend  | Node.js + Express |
-| AI       | [Anthropic Claude API](https://docs.anthropic.com) (`claude-sonnet-4-20250514`) |
+|----------|------------|
+| Frontend | Vanilla HTML, CSS, JavaScript (in `public/`) |
+| Backend  | Vercel Serverless Functions (in `api/`) |
+| AI       | [Groq](https://groq.com) — `llama-3.3-70b-versatile` (free) |
+| PDF      | pdf-parse |
+| YouTube  | youtube-transcript |
 | Fonts    | DM Serif Display, Sora, DM Mono (Google Fonts) |
 
 ---
